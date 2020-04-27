@@ -524,7 +524,7 @@ func (d *Decoder) decodeInt(name string, data interface{}, val reflect.Value) er
 		if err == nil {
 			val.SetInt(i)
 		} else {
-			return fmt.Errorf("cannot parse '%s' as int: %s", name, err)
+			return fmt.Errorf("cannot xxx parse '%s' as int: %s", name, err)
 		}
 	case dataType.PkgPath() == "encoding/json" && dataType.Name() == "Number":
 		jn := data.(json.Number)
