@@ -524,7 +524,7 @@ func (d *Decoder) decodeInt(name string, data interface{}, val reflect.Value) er
 		if err == nil {
 			val.SetInt(i)
 		} else {
-			return fmt.Errorf("cannot xxx parse '%s' as int: %s", name, err)
+			return parseError(name, dataVal.String(), reflect.Int, err)
 		}
 	case dataType.PkgPath() == "encoding/json" && dataType.Name() == "Number":
 		jn := data.(json.Number)
@@ -552,8 +552,7 @@ func (d *Decoder) decodeUint(name string, data interface{}, val reflect.Value) e
 	case dataKind == reflect.Int:
 		i := dataVal.Int()
 		if i < 0 && !d.config.WeaklyTypedInput {
-			return fmt.Errorf("cannot parse '%s', %d overflows uint",
-				name, i)
+			return overflowError(name, i, reflect.Uint)
 		}
 		val.SetUint(uint64(i))
 	case dataKind == reflect.Uint:
@@ -561,8 +560,7 @@ func (d *Decoder) decodeUint(name string, data interface{}, val reflect.Value) e
 	case dataKind == reflect.Float32:
 		f := dataVal.Float()
 		if f < 0 && !d.config.WeaklyTypedInput {
-			return fmt.Errorf("cannot parse '%s', %f overflows uint",
-				name, f)
+			return overflowError(name, f, reflect.Uint)
 		}
 		val.SetUint(uint64(f))
 	case dataKind == reflect.Bool && d.config.WeaklyTypedInput:
@@ -576,7 +574,7 @@ func (d *Decoder) decodeUint(name string, data interface{}, val reflect.Value) e
 		if err == nil {
 			val.SetUint(i)
 		} else {
-			return fmt.Errorf("cannot parse '%s' as uint: %s", name, err)
+			return parseError(name, dataVal.String(), reflect.Uint, err)
 		}
 	case dataType.PkgPath() == "encoding/json" && dataType.Name() == "Number":
 		jn := data.(json.Number)
@@ -619,7 +617,7 @@ func (d *Decoder) decodeBool(name string, data interface{}, val reflect.Value) e
 		} else if dataVal.String() == "" {
 			val.SetBool(false)
 		} else {
-			return fmt.Errorf("cannot parse '%s' as bool: %s", name, err)
+			return parseError(name, dataVal.String(), reflect.Bool, err)
 		}
 	default:
 		return fmt.Errorf(
@@ -653,7 +651,7 @@ func (d *Decoder) decodeFloat(name string, data interface{}, val reflect.Value) 
 		if err == nil {
 			val.SetFloat(f)
 		} else {
-			return fmt.Errorf("cannot parse '%s' as float: %s", name, err)
+			return parseError(name, dataVal.String(), reflect.Float64, err)
 		}
 	case dataType.PkgPath() == "encoding/json" && dataType.Name() == "Number":
 		jn := data.(json.Number)
@@ -733,7 +731,7 @@ func (d *Decoder) decodeMapFromMap(name string, dataVal reflect.Value, val refle
 	valElemType := valType.Elem()
 
 	// Accumulate errors
-	errors := make([]string, 0)
+	errors := &Error{}
 
 	// If the input data is empty, then we just match what the input data is.
 	if dataVal.Len() == 0 {
@@ -755,7 +753,7 @@ func (d *Decoder) decodeMapFromMap(name string, dataVal reflect.Value, val refle
 		// First decode the key into the proper type
 		currentKey := reflect.Indirect(reflect.New(valKeyType))
 		if err := d.decode(fieldName, k.Interface(), currentKey); err != nil {
-			errors = appendErrors(errors, err)
+			errors.append(err)
 			continue
 		}
 
@@ -763,7 +761,7 @@ func (d *Decoder) decodeMapFromMap(name string, dataVal reflect.Value, val refle
 		v := dataVal.MapIndex(k).Interface()
 		currentVal := reflect.Indirect(reflect.New(valElemType))
 		if err := d.decode(fieldName, v, currentVal); err != nil {
-			errors = appendErrors(errors, err)
+			errors.append(err)
 			continue
 		}
 
@@ -774,8 +772,8 @@ func (d *Decoder) decodeMapFromMap(name string, dataVal reflect.Value, val refle
 	val.Set(valMap)
 
 	// If we had errors, return those
-	if len(errors) > 0 {
-		return &Error{errors}
+	if len(errors.Errors) > 0 {
+		return errors
 	}
 
 	return nil
@@ -973,7 +971,7 @@ func (d *Decoder) decodeSlice(name string, data interface{}, val reflect.Value) 
 	}
 
 	// Accumulate any errors
-	errors := make([]string, 0)
+	errors := &Error{}
 
 	for i := 0; i < dataVal.Len(); i++ {
 		currentData := dataVal.Index(i).Interface()
@@ -984,7 +982,7 @@ func (d *Decoder) decodeSlice(name string, data interface{}, val reflect.Value) 
 
 		fieldName := fmt.Sprintf("%s[%d]", name, i)
 		if err := d.decode(fieldName, currentData, currentField); err != nil {
-			errors = appendErrors(errors, err)
+			errors.append(err)
 		}
 	}
 
@@ -992,8 +990,8 @@ func (d *Decoder) decodeSlice(name string, data interface{}, val reflect.Value) 
 	val.Set(valSlice)
 
 	// If there were errors, we return those
-	if len(errors) > 0 {
-		return &Error{errors}
+	if len(errors.Errors) > 0 {
+		return errors
 	}
 
 	return nil
@@ -1043,7 +1041,7 @@ func (d *Decoder) decodeArray(name string, data interface{}, val reflect.Value) 
 	}
 
 	// Accumulate any errors
-	errors := make([]string, 0)
+	errors := &Error{}
 
 	for i := 0; i < dataVal.Len(); i++ {
 		currentData := dataVal.Index(i).Interface()
@@ -1051,7 +1049,7 @@ func (d *Decoder) decodeArray(name string, data interface{}, val reflect.Value) 
 
 		fieldName := fmt.Sprintf("%s[%d]", name, i)
 		if err := d.decode(fieldName, currentData, currentField); err != nil {
-			errors = appendErrors(errors, err)
+			errors.append(err)
 		}
 	}
 
@@ -1059,8 +1057,8 @@ func (d *Decoder) decodeArray(name string, data interface{}, val reflect.Value) 
 	val.Set(valArray)
 
 	// If there were errors, we return those
-	if len(errors) > 0 {
-		return &Error{errors}
+	if len(errors.Errors) > 0 {
+		return errors
 	}
 
 	return nil
@@ -1114,7 +1112,7 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 		dataValKeysUnused[dataValKey.Interface()] = struct{}{}
 	}
 
-	errors := make([]string, 0)
+	errors := &Error{}
 
 	// This slice will keep track of all the structs we'll be decoding.
 	// There can be more than one struct if there are embedded structs
@@ -1164,7 +1162,7 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 
 			if squash {
 				if fieldKind != reflect.Struct {
-					errors = appendErrors(errors,
+					errors.append(
 						fmt.Errorf("%s: unsupported type for squash: %s", fieldType.Name, fieldKind))
 				} else {
 					structs = append(structs, structVal.FieldByName(fieldType.Name))
@@ -1241,7 +1239,7 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 		}
 
 		if err := d.decode(fieldName, rawMapVal.Interface(), fieldValue); err != nil {
-			errors = appendErrors(errors, err)
+			errors.append(err)
 		}
 	}
 
@@ -1256,7 +1254,7 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 
 		// Decode it as-if we were just decoding this map onto our map.
 		if err := d.decodeMap(name, remain, remainField.val); err != nil {
-			errors = appendErrors(errors, err)
+			errors.append(err)
 		}
 
 		// Set the map to nil so we have none so that the next check will
@@ -1272,11 +1270,11 @@ func (d *Decoder) decodeStructFromMap(name string, dataVal, val reflect.Value) e
 		sort.Strings(keys)
 
 		err := fmt.Errorf("'%s' has invalid keys: %s", name, strings.Join(keys, ", "))
-		errors = appendErrors(errors, err)
+		errors.append(err)
 	}
 
-	if len(errors) > 0 {
-		return &Error{errors}
+	if len(errors.Errors) > 0 {
+		return errors
 	}
 
 	// Add the unused keys to the list of unused keys if we're tracking metadata
