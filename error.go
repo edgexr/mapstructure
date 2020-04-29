@@ -1,8 +1,8 @@
 package mapstructure
 
 import (
-	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 )
@@ -10,7 +10,7 @@ import (
 // Error implements the error interface and can represents multiple
 // errors that occur in the course of a single decode.
 type Error struct {
-	Errors []string
+	Errors []error
 }
 
 func (e *Error) Error() string {
@@ -31,20 +31,44 @@ func (e *Error) WrappedErrors() []error {
 	if e == nil {
 		return nil
 	}
-
-	result := make([]error, len(e.Errors))
-	for i, e := range e.Errors {
-		result[i] = errors.New(e)
-	}
-
-	return result
+	return e.Errors
 }
 
-func appendErrors(errors []string, err error) []string {
-	switch e := err.(type) {
+func (e *Error) append(err error) {
+	switch inerr := err.(type) {
 	case *Error:
-		return append(errors, e.Errors...)
+		e.Errors = append(e.Errors, inerr.Errors...)
 	default:
-		return append(errors, e.Error())
+		e.Errors = append(e.Errors, inerr)
 	}
+}
+
+type ParseError struct {
+	Name string
+	Val  interface{}
+	To   reflect.Kind
+	Err  error
+}
+
+func (e *ParseError) Error() string {
+	return fmt.Sprintf("cannot parse '%s' as %v: %v", e.Name, e.To, e.Err)
+}
+
+func parseError(name string, val interface{}, to reflect.Kind, err error) *ParseError {
+	return &ParseError{name, val, to, err}
+}
+
+type OverflowError struct {
+	Name string
+	Val  interface{}
+	To   reflect.Kind
+}
+
+func (e *OverflowError) Error() string {
+	return fmt.Sprintf("cannot parse '%s', %v overflows %v",
+		e.Name, e.Val, e.To)
+}
+
+func overflowError(name string, val interface{}, to reflect.Kind) error {
+	return &OverflowError{name, val, to}
 }
